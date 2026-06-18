@@ -309,4 +309,29 @@ Audit logs are retained for 365 days and include:
 1. Generate new certificate
 2. Update Kubernetes secret: `kubectl create secret tls tot-tls --cert=new.crt --key=new.key -n tent-production --dry-run=client -o yaml | kubectl apply -f -`
 3. Restart services: `kubectl rollout restart deployment -n tent-production`
-4. Verify new certificate: `openssl s_client -connect api.example.com:443 -servername api.example.com`
+4. Verify new certificate: `openssl s_client -connect api.example.com:443 -servername api.example.com
+
+## Diagnostic Diff Tool
+
+The `tools/diagnostic_diff.py` script compares two diagnostic metadata JSON files
+and prints a human-readable diff.
+
+Usage:
+
+```bash
+# Human-readable diff
+python3 tools/diagnostic_diff.py diagnostic/build-OLD.json diagnostic/build-NEW.json
+
+# Machine-readable JSON output
+python3 tools/diagnostic_diff.py --json diagnostic/build-OLD.json diagnostic/build-NEW.json
+```
+
+The diff shows:
+- Added, removed, and changed modules
+- Status transitions (PASS/FAIL)
+- Duration deltas
+- Command and artifact changes
+
+Exit codes:
+- `0`: Comparison completed successfully
+- `1`: Input file not found or invalid JSON`
