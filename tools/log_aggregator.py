@@ -359,6 +359,32 @@ class LogAggregator:
             }, f, indent=2, default=str)
         logger.info(f"Report exported to {output_path}")
 
+    def export_jsonl(self, output_path: str):
+        with open(output_path, 'w') as f:
+            for entry in self.entries:
+                record = {
+                    'timestamp': entry.get('timestamp'),
+                    'level': entry.get('level', 'unknown'),
+                    'source': entry.get('service', 'unknown'),
+                    'message': entry.get('message', ''),
+                    'metadata': {
+                        k: v for k, v in entry.items()
+                        if k not in ('timestamp', 'level', 'service', 'message')
+                    },
+                }
+                f.write(json.dumps(record, default=str) + '\n')
+        logger.info(f"Exported {len(self.entries)} entries to {output_path}")
+
+    def export_text(self, output_path: str):
+        with open(output_path, 'w') as f:
+            for entry in self.entries:
+                ts = entry.get('timestamp', '')
+                level = entry.get('level', 'unknown')
+                svc = entry.get('service', 'unknown')
+                msg = entry.get('message', '')
+                f.write(f"[{ts}] [{level}] [{svc}] {msg}\n")
+        logger.info(f"Exported {len(self.entries)} entries to {output_path}")
+
     def generate_html_report(self, output_path: str):
         summary = self.get_summary()
         html = f"""<!DOCTYPE html>
@@ -409,7 +435,7 @@ def parse_args():
     parser.add_argument("--input", "-i", help="Input log file or glob pattern")
     parser.add_argument("--dir", help="Directory containing log files")
     parser.add_argument("--output", "-o", default="log_report.json", help="Output file path")
-    parser.add_argument("--format", choices=["json", "csv", "html"], default="json", help="Output format")
+    parser.add_argument("--format", choices=["json", "csv", "html", "jsonl", "text"], default="json", help="Output format")
     parser.add_argument("--search", help="Search for a string in logs")
     parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
     return parser.parse_args()
@@ -456,6 +482,10 @@ def main():
         aggregator.export_csv(args.output)
     elif args.format == "html":
         aggregator.generate_html_report(args.output)
+    elif args.format == "jsonl":
+        aggregator.export_jsonl(args.output)
+    elif args.format == "text":
+        aggregator.export_text(args.output)
     else:
         aggregator.export_json(args.output)
 
