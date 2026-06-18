@@ -14,6 +14,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+__version__ = "0.1.0"
+
 ROOT = Path(__file__).resolve().parent
 DIAGNOSTIC_DIR = ROOT / "diagnostic"
 DIAGNOSTIC_CHUNK_SIZE = 40 * 1024 * 1024
@@ -824,9 +826,13 @@ Examples:
   python3 build.py                    Build all modules
   python3 build.py -m backend         Build only backend
   python3 build.py -m frontend,market Build frontend and market
+  python3 build.py --target backend   Build only backend (alias for -m)
   python3 build.py --clean            Clean all artifacts
   python3 build.py --release          Release build (Rust only)
   python3 build.py --verbose          Verbose output
+  python3 build.py --skip-diagnostics Skip diagnostic bundle
+  python3 build.py --output-dir /tmp  Write diagnostics to custom directory
+  python3 build.py --list-targets     List available targets
 
 Diagnostic bundle:
   python3 build.py
@@ -836,6 +842,10 @@ Diagnostic bundle:
         "-m", "--module",
         help="Module(s) to build (comma-separated, or 'all')",
         default="all",
+    )
+    parser.add_argument(
+        "--target",
+        help="Module(s) to build (comma-separated, or 'all'); alias for -m",
     )
     parser.add_argument(
         "--clean", action="store_true",
@@ -850,17 +860,43 @@ Diagnostic bundle:
         help="Show detailed build output",
     )
     parser.add_argument(
+        "--skip-diagnostics", action="store_true",
+        help="Skip encryptly diagnostic bundle generation",
+    )
+    parser.add_argument(
+        "--output-dir",
+        help="Directory for diagnostic output (default: diagnostic/)",
+    )
+    parser.add_argument(
+        "--version", action="version", version=f"%(prog)s {__version__}",
+        help="Show version and exit",
+    )
+    parser.add_argument(
         "--list", action="store_true",
         help="List available modules and exit",
     )
+    parser.add_argument(
+        "--list-targets", action="store_true",
+        help="List available targets and exit",
+    )
 
     args = parser.parse_args()
+
+    global DIAGNOSTIC_DIR
+    if args.output_dir:
+        DIAGNOSTIC_DIR = Path(args.output_dir).resolve()
+
+    if args.target and args.module != "all":
+        print(f"  {color('Error:', Colors.RED)} Cannot use both --target and -m/--module")
+        return 1
+    if args.target:
+        args.module = args.target
 
     print(f"\n  {color('Tent of Trials: building', Colors.CYAN)}")
     print(f"  Working directory: {ROOT}")
     print()
 
-    if args.list:
+    if args.list or args.list_targets:
         print(f"  {color('Available modules:', Colors.BOLD)}")
         for m in MODULES:
             print(f"    {color(m.name, Colors.CYAN)} ({m.language})")
@@ -915,18 +951,21 @@ Diagnostic bundle:
         print(f"\n  {color('Clean complete.', Colors.GREEN)}")
         return 0
 
-    print(f"\n  {color('Checking encryptly diagnostics...', Colors.GRAY)}")
-    encryptly_start = time.time()
-    encryptly_ok, encryptly_message = check_encryptly_runs()
-    if not encryptly_ok:
-        elapsed = time.time() - encryptly_start
-        blocker = f"{ENCRYPTLY_BLOCKER_MESSAGE} {encryptly_message}"
-        print(f"  {color('✗ encryptly cannot run', Colors.RED)}")
-        print(f"  {color('BLOCKER:', Colors.RED)} {blocker}")
-        results = [("encryptly-preflight", False, elapsed, blocker, None)]
-        generate_logd(results, args.verbose)
-        return 1
-    print(f"  {color('✓ encryptly runs', Colors.GREEN)}")
+    if not args.skip_diagnostics:
+        print(f"\n  {color('Checking encryptly diagnostics...', Colors.GRAY)}")
+        encryptly_start = time.time()
+        encryptly_ok, encryptly_message = check_encryptly_runs()
+        if not encryptly_ok:
+            elapsed = time.time() - encryptly_start
+            blocker = f"{ENCRYPTLY_BLOCKER_MESSAGE} {encryptly_message}"
+            print(f"  {color('✗ encryptly cannot run', Colors.RED)}")
+            print(f"  {color('BLOCKER:', Colors.RED)} {blocker}")
+            results = [("encryptly-preflight", False, elapsed, blocker, None)]
+            generate_logd(results, args.verbose)
+            return 1
+        print(f"  {color('✓ encryptly runs', Colors.GREEN)}")
+    else:
+        print(f"\n  {color('Skipping diagnostics (--skip-diagnostics)', Colors.YELLOW)}")
 
     print(f"\n  {color(f'Building {len(selected)} module(s) | release={args.release}', Colors.GRAY)}")
 
@@ -938,6 +977,9 @@ Diagnostic bundle:
         results.append((module.name, success, elapsed, output, binary))
 
     print_summary(results)
+
+    if args.skip_diagnostics:
+        return 0 if all(r[1] for r in results) else 1
 
     diagnostics_ok = generate_logd(results, args.verbose)
 
