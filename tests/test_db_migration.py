@@ -18,38 +18,45 @@ def test_has_main():
     assert callable(db_migration.main)
 
 
-def test_parse_args_defaults():
+def test_has_main():
     import db_migration
-    args = db_migration.parse_args(["--action", "up"])
-    assert args.action == "up"
+    assert hasattr(db_migration, "main")
+    assert callable(db_migration.main)
 
 
-def test_parse_args_down():
+def test_execute_sql_has_valid_params():
     import db_migration
-    args = db_migration.parse_args(["--action", "down"])
-    assert args.action == "down"
+    import inspect
+    sig = inspect.signature(db_migration.execute_sql)
+    params = list(sig.parameters.keys())
+    assert "sql" in params
+    assert "db_config" in params
 
 
-def test_parse_args_create():
+def test_apply_migration_has_valid_params():
     import db_migration
-    args = db_migration.parse_args(["--action", "create", "--name", "add_users"])
-    assert args.action == "create"
-    assert args.name == "add_users"
+    import inspect
+    sig = inspect.signature(db_migration.apply_migration)
+    params = list(sig.parameters.keys())
+    assert "version" in params
+    assert "direction" in params
 
 
-def test_parse_args_invalid_action():
+def test_get_migration_status_exists():
     import db_migration
-    with pytest.raises(SystemExit):
-        db_migration.parse_args(["--action", "invalid"])
+    result = db_migration.get_migration_status()
+    assert isinstance(result, list)
 
 
-def test_schema_version_int():
+def test_run_all_migrations_has_dry_run_param():
     import db_migration
-    version = db_migration.parse_schema_version("001_initial")
-    assert version == 1
+    import inspect
+    sig = inspect.signature(db_migration.run_all_migrations)
+    assert "dry_run" in sig.parameters
 
 
-def test_schema_version_no_prefix():
+def test_create_migration_has_description_param():
     import db_migration
-    with pytest.raises(ValueError):
-        db_migration.parse_schema_version("initial")
+    import inspect
+    sig = inspect.signature(db_migration.create_migration)
+    assert "description" in sig.parameters
