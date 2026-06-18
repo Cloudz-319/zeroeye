@@ -28,6 +28,14 @@ Usage:
     python3 health_check.py --service backend # Check specific service
     python3 health_check.py --json            # JSON output
     python3 health_check.py --watch           # Continuous monitoring
+    python3 health_check.py --retries 3       # Retry failed checks up to 3 times
+    python3 health_check.py --timeout-secs 10 # Custom timeout per check
+    python3 health_check.py --backoff-secs 2  # Initial backoff for retries
+
+Retry Policy:
+    - Retries only network errors (timeout, connection refused) and 5xx HTTP responses
+    - 4xx responses are not retried (client errors)
+    - Uses exponential backoff: wait = backoff_secs * 2^attempt
 """
 
 import argparse
@@ -67,6 +75,36 @@ MEMORY_THRESHOLD_CRITICAL = 90
 # ---------------------------------------------------------------------------
 # CHECK FUNCTIONS
 # ---------------------------------------------------------------------------
+
+def retry_operation(func, *args, retries: int = 0, backoff_secs: float = 1.0, **kwargs):
+    """Retry a function with exponential backoff for network errors and 5xx responses."""
+    last_result = None
+    
+    for attempt in range(retries + 1):
+        result = func(*args, **kwargs)
+        status = result[0]
+        detail = result[1]
+        
+        # Check if we should retry
+        should_retry = False
+        if status == "CRITICAL":
+            # Check if it's a network error or 5xx response
+            if "timeout" in detail.lower() or "connection" in detail.lower() or "refused" in detail.lower():
+                should_retry = True
+            elif "HTTP 5" in detail:
+                should_retry = True
+        
+        last_result = result
+        
+        if not should_retry or attempt == retries:
+            break
+            
+        # Exponential backoff
+        wait_time = backoff_secs * (2 ** attempt)
+        time.sleep(wait_time)
+    
+    return last_result
+
 
 def check_http_service(host: str, port: int, path: str, timeout: int) -> Tuple[str, str, int]:
     import http.client
@@ -200,7 +238,13 @@ def check_load_average() -> Tuple[str, str, float]:
 # HEALTH CHECK RUNNER
 # ---------------------------------------------------------------------------
 
-def run_health_checks(service: Optional[str] = None, json_output: bool = False) -> Dict[str, Any]:
+def run_health_checks(
+    service: Optional[str] = None,
+    json_output: bool = False,
+    retries: int = 0,
+    timeout_secs: int = 5,
+    backoff_secs: float = 1.0
+) -> Dict[str, Any]:
     results: Dict[str, Any] = {
         "timestamp": datetime.now().isoformat(),
         "hostname": socket.gethostname(),
@@ -208,6 +252,11 @@ def run_health_checks(service: Optional[str] = None, json_output: bool = False) 
         "infrastructure": {},
         "system": {},
         "overall_status": "OK",
+        "retry_config": {
+            "retries": retries,
+            "timeout_secs": timeout_secs,
+            "backoff_secs": backoff_secs,
+        },
     }
 
     all_ok = True
@@ -216,8 +265,14 @@ def run_health_checks(service: Optional[str] = None, json_output: bool = False) 
     for name, config in SERVICES.items():
         if service and name != service:
             continue
-        status, detail, code = check_http_service(
-            config["host"], config["port"], config["path"], config["timeout"]
+        status, detail, code = retry_operation(
+            check_http_service,
+            config["host"],
+            config["port"],
+            config["path"],
+            timeout_secs,
+            retries=retries,
+            backoff_secs=backoff_secs
         )
         results["services"][name] = {
             "status": status,
@@ -232,7 +287,14 @@ def run_health_checks(service: Optional[str] = None, json_output: bool = False) 
     for name, config in INFRASTRUCTURE.items():
         if service and name != service:
             continue
-        status, detail, latency = check_tcp_port(config["host"], config["port"], config["timeout"])
+        status, detail, latency = retry_operation(
+            check_tcp_port,
+            config["host"],
+            config["port"],
+            timeout_secs,
+            retries=retries,
+            backoff_secs=backoff_secs
+        )
         results["infrastructure"][name] = {
             "status": status,
             "detail": detail,
@@ -307,6 +369,9 @@ def parse_args():
     parser.add_argument("--watch", "-w", action="store_true", help="Continuous monitoring")
     parser.add_argument("--interval", "-i", type=int, default=30, help="Check interval in seconds")
     parser.add_argument("--output", "-o", help="Output file path")
+    parser.add_argument("--retries", "-r", type=int, default=0, help="Number of retries for failed checks")
+    parser.add_argument("--timeout-secs", "-t", type=int, default=5, help="Timeout in seconds for each check")
+    parser.add_argument("--backoff-secs", "-b", type=float, default=1.0, help="Initial backoff in seconds for retries")
     return parser.parse_args()
 
 
@@ -317,7 +382,13 @@ def main():
         print(f"Continuous monitoring (interval: {args.interval}s). Press Ctrl+C to stop.")
         try:
             while True:
-                results = run_health_checks(args.service, args.json)
+                results = run_health_checks(
+                    args.service,
+                    args.json,
+                    retries=args.retries,
+                    timeout_secs=args.timeout_secs,
+                    backoff_secs=args.backoff_secs
+                )
                 if args.json:
                     print(json.dumps(results, indent=2))
                 else:
@@ -326,7 +397,13 @@ def main():
         except KeyboardInterrupt:
             print("\nMonitoring stopped")
     else:
-        results = run_health_checks(args.service, args.json)
+        results = run_health_checks(
+            args.service,
+            args.json,
+            retries=args.retries,
+            timeout_secs=args.timeout_secs,
+            backoff_secs=args.backoff_secs
+        )
         if args.json:
             output = json.dumps(results, indent=2)
             print(output)
