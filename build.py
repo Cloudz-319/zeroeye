@@ -12,12 +12,15 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 ROOT = Path(__file__).resolve().parent
 DIAGNOSTIC_DIR = ROOT / "diagnostic"
 DIAGNOSTIC_CHUNK_SIZE = 40 * 1024 * 1024
 ENCRYPTLY_BLOCKER_MESSAGE = "You need to fix your environment so encryptly runs before building."
+ENCRYPTLY_PACK_MAX_ATTEMPTS = 3
+ENCRYPTLY_PACK_INITIAL_BACKOFF_SECONDS = 0.5
+ENCRYPTLY_PACK_MAX_BACKOFF_SECONDS = 5.0
 
 
 def current_commit_id() -> str:
@@ -78,6 +81,16 @@ class Module:
     clean_cmd: list[str]
     build_dir: Optional[Path] = None
     env: Optional[dict[str, str]] = None
+
+
+@dataclass
+class EncryptlyPackResult:
+    success: bool
+    password: str = ""
+    terminal_error: Optional[str] = None
+    attempts: int = 0
+    retry_count: int = 0
+    retry_errors: Optional[list[str]] = None
 
 MODULES = [
     Module(
@@ -262,6 +275,98 @@ def check_encryptly_runs(timeout: int = 60) -> tuple[bool, str]:
         return False, str(e)
     finally:
         shutil.rmtree(workspace, ignore_errors=True)
+
+
+def pack_logd_with_retries(
+    encryptly_bin: Path,
+    logd_path: Path,
+    workspace: Path,
+    *,
+    max_attempts: int = ENCRYPTLY_PACK_MAX_ATTEMPTS,
+    initial_backoff: float = ENCRYPTLY_PACK_INITIAL_BACKOFF_SECONDS,
+    max_backoff: float = ENCRYPTLY_PACK_MAX_BACKOFF_SECONDS,
+    timeout: int = 300,
+    sleep: Callable[[float], None] = time.sleep,
+    runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
+) -> EncryptlyPackResult:
+    """Create a diagnostic .logd with bounded retries for transient pack failures."""
+    if max_attempts < 1:
+        raise ValueError("max_attempts must be at least 1")
+
+    retry_errors: list[str] = []
+    terminal_error: Optional[str] = None
+    delay = initial_backoff
+
+    for attempt in range(1, max_attempts + 1):
+        if logd_path.exists():
+            try:
+                logd_path.unlink()
+            except OSError as e:
+                terminal_error = f"could not remove partial {logd_path.name}: {e}"
+                retry_errors.append(terminal_error)
+                if attempt < max_attempts:
+                    sleep(delay)
+                    delay = min(delay * 2, max_backoff)
+                continue
+
+        try:
+            result = runner(
+                [
+                    str(encryptly_bin),
+                    "pack",
+                    str(logd_path),
+                    "--include",
+                    str(workspace),
+                    "--max-file-size",
+                    "61440",
+                ],
+                cwd=str(ROOT),
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
+            if result.returncode == 0 and logd_path.exists():
+                return EncryptlyPackResult(
+                    success=True,
+                    password=result.stdout.strip(),
+                    attempts=attempt,
+                    retry_count=attempt - 1,
+                    retry_errors=retry_errors,
+                )
+            if result.returncode == 0:
+                terminal_error = "encryptly pack completed without creating a .logd"
+            else:
+                terminal_error = (
+                    result.stderr.strip()
+                    or result.stdout.strip()
+                    or "encryptly pack failed"
+                )
+        except subprocess.TimeoutExpired:
+            terminal_error = f"encryptly pack TIMEOUT ({timeout}s)"
+        except Exception as e:
+            terminal_error = str(e)
+
+        retry_errors.append(terminal_error)
+        if logd_path.exists():
+            try:
+                logd_path.unlink()
+            except OSError as e:
+                cleanup_error = f"could not remove partial {logd_path.name}: {e}"
+                retry_errors.append(cleanup_error)
+                terminal_error = cleanup_error
+
+        if attempt < max_attempts:
+            sleep(delay)
+            delay = min(delay * 2, max_backoff)
+
+    return EncryptlyPackResult(
+        success=False,
+        terminal_error=terminal_error or "encryptly pack failed",
+        attempts=max_attempts,
+        retry_count=max_attempts - 1,
+        retry_errors=retry_errors,
+    )
+
 
 class Colors:
     GREEN = "\033[92m"
@@ -487,6 +592,9 @@ def build_diagnostic_report(
     logd_relpaths: Optional[list[str]] = None,
     password: Optional[str] = None,
     logd_error: Optional[str] = None,
+    logd_attempts: Optional[int] = None,
+    logd_retry_count: Optional[int] = None,
+    logd_retry_errors: Optional[list[str]] = None,
     chunked: bool = False,
     message_blocker: Optional[str] = None,
 ) -> dict:
@@ -507,6 +615,9 @@ def build_diagnostic_report(
         "commit": commit_id,
         "diagnostic_logd": diagnostic_logd,
         "diagnostic_logd_error": logd_error,
+        "diagnostic_logd_attempts": logd_attempts,
+        "diagnostic_logd_retry_count": logd_retry_count,
+        "diagnostic_logd_retry_errors": logd_retry_errors,
         "message_blocker": message_blocker,
         "chunked": chunked,
         "chunk_size_bytes": DIAGNOSTIC_CHUNK_SIZE if chunked else None,
@@ -614,6 +725,9 @@ def generate_logd(
                 results,
                 commit_id,
                 logd_error=error,
+                logd_attempts=0,
+                logd_retry_count=0,
+                logd_retry_errors=[],
                 message_blocker=ENCRYPTLY_BLOCKER_MESSAGE,
             ),
         )
@@ -665,26 +779,12 @@ def generate_logd(
                 log_lines.append(output)
         (safe_dir / "build.log").write_text("\n".join(log_lines), encoding="utf-8")
 
-        sr = subprocess.run(
-            [
-                str(encryptly_bin),
-                "pack",
-                str(logd_path),
-                "--include",
-                str(workspace),
-                "--max-file-size",
-                "61440",
-            ],
-            cwd=str(ROOT),
-            capture_output=True,
-            text=True,
-            timeout=300,
-        )
-        if sr.returncode != 0:
-            error = sr.stderr.strip() or sr.stdout.strip() or "encryptly pack failed"
+        pack_result = pack_logd_with_retries(encryptly_bin, logd_path, workspace)
+        if not pack_result.success:
+            error = pack_result.terminal_error or "encryptly pack failed"
             print(
                 f"    {color('✗', Colors.RED)} {logd_path.relative_to(ROOT)} creation failed: "
-                f"{error}"
+                f"{error} after {pack_result.retry_count} retry attempt(s)"
             )
             if logd_path.exists():
                 logd_path.unlink()
@@ -694,6 +794,9 @@ def generate_logd(
                     results,
                     commit_id,
                     logd_error=error,
+                    logd_attempts=pack_result.attempts,
+                    logd_retry_count=pack_result.retry_count,
+                    logd_retry_errors=pack_result.retry_errors,
                     message_blocker=ENCRYPTLY_BLOCKER_MESSAGE,
                 ),
             )
@@ -701,10 +804,15 @@ def generate_logd(
             commit_diagnostic_artifacts([metadata_path], commit_id)
             return False
 
-        safe_pw = sr.stdout.strip()
+        safe_pw = pack_result.password
         logd_files = split_diagnostic_logd(logd_path)
         logd_relpaths = [str(path.relative_to(ROOT)) for path in logd_files]
         decrypt_target = logd_relpaths[0] if len(logd_relpaths) == 1 else str(logd_path.relative_to(ROOT))
+        if pack_result.retry_count:
+            print(
+                f"    {color('✓', Colors.GREEN)} encryptly succeeded after "
+                f"{pack_result.retry_count} retry attempt(s)"
+            )
         write_diagnostic_report(
             metadata_path,
             build_diagnostic_report(
@@ -712,6 +820,9 @@ def generate_logd(
                 commit_id,
                 logd_relpaths=logd_relpaths,
                 password=safe_pw,
+                logd_attempts=pack_result.attempts,
+                logd_retry_count=pack_result.retry_count,
+                logd_retry_errors=pack_result.retry_errors,
                 chunked=len(logd_files) > 1,
             ),
         )
