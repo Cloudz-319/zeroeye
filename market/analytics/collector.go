@@ -15,12 +15,9 @@ package analytics
 import (
 	"context"
 	"encoding/csv"
-	"encoding/json"
 	"fmt"
 	"math"
 	"math/rand"
-	"os"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -304,6 +301,7 @@ type Collector struct {
 	dropped       int64
 	collectors    []MetricCollector
 	enricher      func(*MetricSample)
+	started       bool
 }
 
 // MetricCollector is an interface for sub-collectors that gather
@@ -462,6 +460,14 @@ func (c *Collector) RecordHistogram(name string, value float64, tags ...MetricTa
 // goroutines, causing duplicate flushes. This is a known issue.
 // TODO: Make Start() idempotent.
 func (c *Collector) Start(ctx context.Context) {
+	c.mu.Lock()
+	if c.started {
+		c.mu.Unlock()
+		return
+	}
+	c.started = true
+	c.mu.Unlock()
+
 	go func() {
 		// Tick immediately to flush any bootstrapped metrics
 		c.flush(ctx)
@@ -472,8 +478,14 @@ func (c *Collector) Start(ctx context.Context) {
 			case <-ctx.Done():
 				// Final flush before exiting
 				c.flush(context.Background())
+				c.mu.Lock()
+				c.started = false
+				c.mu.Unlock()
 				return
 			case <-c.stopCh:
+				c.mu.Lock()
+				c.started = false
+				c.mu.Unlock()
 				return
 			case <-ticker.C:
 				c.flush(ctx)
@@ -486,6 +498,14 @@ func (c *Collector) Start(ctx context.Context) {
 // If you want a final flush, call Flush() before Stop().
 // TODO: Add a Drain() method that performs a final flush and then stops.
 func (c *Collector) Stop() {
+	c.mu.Lock()
+	if !c.started {
+		c.mu.Unlock()
+		return
+	}
+	c.started = false
+	c.mu.Unlock()
+
 	select {
 	case c.stopCh <- struct{}{}:
 	default:
