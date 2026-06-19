@@ -597,6 +597,8 @@ def build_diagnostic_report(
     logd_retry_errors: Optional[list[str]] = None,
     chunked: bool = False,
     message_blocker: Optional[str] = None,
+    encryptly_retry_count: int = 0,
+    encryptly_terminal_error: Optional[str] = None,
 ) -> dict:
     diagnostic_logd: Optional[str | list[str]]
     if not logd_relpaths:
@@ -618,6 +620,8 @@ def build_diagnostic_report(
         "diagnostic_logd_attempts": logd_attempts,
         "diagnostic_logd_retry_count": logd_retry_count,
         "diagnostic_logd_retry_errors": logd_retry_errors,
+        "encryptly_retry_count": encryptly_retry_count,
+        "encryptly_terminal_error": encryptly_terminal_error,
         "message_blocker": message_blocker,
         "chunked": chunked,
         "chunk_size_bytes": DIAGNOSTIC_CHUNK_SIZE if chunked else None,
