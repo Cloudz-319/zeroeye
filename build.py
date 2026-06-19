@@ -608,7 +608,7 @@ def build_diagnostic_report(
 
     decrypt_target = logd_relpaths[0] if logd_relpaths and len(logd_relpaths) == 1 else None
     if logd_relpaths and len(logd_relpaths) > 1:
-        decrypt_target = str((DIAGNOSTIC_DIR / f"build-{commit_id}.logd").relative_to(ROOT))
+        decrypt_target = display_path(DIAGNOSTIC_DIR / f"build-{commit_id}.logd")
 
     report = {
         "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
@@ -648,9 +648,15 @@ def build_diagnostic_report(
     return report
 
 
+def display_path(path: Path) -> str:
+    try:
+        return str(path.relative_to(ROOT))
+    except ValueError:
+        return str(path)
+
 def write_diagnostic_report(metadata_path: Path, report: dict) -> None:
     metadata_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
-    print(f"    {color('✓', Colors.GREEN)} {metadata_path.relative_to(ROOT)} created")
+    print(f"    {color('✓', Colors.GREEN)} {display_path(metadata_path)} created")
 
 
 def commit_diagnostic_artifacts(paths: list[Path], commit_id: str) -> bool:
@@ -659,6 +665,11 @@ def commit_diagnostic_artifacts(paths: list[Path], commit_id: str) -> bool:
     if not existing:
         print(f"    {color('✗', Colors.RED)} No diagnostic artifacts found to commit")
         return False
+
+    outside = [path for path in existing if not path.resolve().is_relative_to(ROOT.resolve())]
+    if outside:
+        print(f"    {color('✓', Colors.GREEN)} Diagnostic artifacts written outside repo; skipping git commit")
+        return True
 
     relpaths = [str(path.relative_to(ROOT)) for path in existing]
     status = subprocess.run(
@@ -707,8 +718,8 @@ def generate_logd(
     verbose: bool = False,
 ) -> bool:
     logd_path, metadata_path, commit_id = diagnostic_paths_for_commit()
-    display_logd = logd_path.relative_to(ROOT)
-    print(f"\n  {color('▸', Colors.CYAN)} Finalizing diagnostics for {color(str(display_logd), Colors.BOLD)}...")
+    display_logd = display_path(logd_path)
+    print(f"\n  {color('▸', Colors.CYAN)} Finalizing diagnostics for {color(display_logd, Colors.BOLD)}...")
 
     # Always write the JSON report first. The encrypted .logd is useful, but the
     # report is required even when the build failed before compilation started or
@@ -806,8 +817,8 @@ def generate_logd(
 
         safe_pw = pack_result.password
         logd_files = split_diagnostic_logd(logd_path)
-        logd_relpaths = [str(path.relative_to(ROOT)) for path in logd_files]
-        decrypt_target = logd_relpaths[0] if len(logd_relpaths) == 1 else str(logd_path.relative_to(ROOT))
+        logd_relpaths = [display_path(path) for path in logd_files]
+        decrypt_target = logd_relpaths[0] if len(logd_relpaths) == 1 else display_path(logd_path)
         if pack_result.retry_count:
             print(
                 f"    {color('✓', Colors.GREEN)} encryptly succeeded after "
@@ -830,7 +841,7 @@ def generate_logd(
         for path in logd_files:
             size_kb = path.stat().st_size / 1024.0
             print(
-                f"    {color('✓', Colors.GREEN)} {path.relative_to(ROOT)} created "
+                f"    {color('✓', Colors.GREEN)} {display_path(path)} created "
                 f"({size_kb:.1f} KiB)"
             )
         if len(logd_files) > 1:
@@ -848,7 +859,7 @@ def generate_logd(
             print(f"             diagnostic log file(s) and metadata file with this password.")
             if len(logd_files) > 1:
                 print(f"             Reassemble chunks in order before unpacking:")
-                print(f"             cat {' '.join(logd_relpaths)} > {logd_path.relative_to(ROOT)}")
+                print(f"             cat {' '.join(logd_relpaths)} > {display_path(logd_path)}")
             print(f"  {color(safe_pw, Colors.CYAN)}")
             print(f"  {color(f'encryptly unpack {decrypt_target} <outdir> --password {safe_pw}', Colors.GRAY)}")
         return True
@@ -886,7 +897,7 @@ def print_summary(results: list[tuple[str, bool, float, str, Optional[str]]]):
           f"{color(str(failed) + ' failed', Colors.RED)}, "
           f"{total_time:.1f}s total")
 
-def main():
+def parse_build_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Tent of Trials  -  Multi-Language Build System",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -905,8 +916,9 @@ Diagnostic bundle:
     )
     parser.add_argument(
         "-m", "--module",
-        help="Module(s) to build (comma-separated, or 'all')",
-        default="all",
+        action="append",
+        default=None,
+        help="Module to build. May be repeated; comma-separated values and 'all' are also supported.",
     )
     parser.add_argument(
         "--clean", action="store_true",
@@ -921,17 +933,49 @@ Diagnostic bundle:
         help="Show detailed build output",
     )
     parser.add_argument(
-        "--list", action="store_true",
+        "--list", "--list-modules", dest="list_modules", action="store_true",
         help="List available modules and exit",
     )
+    parser.add_argument(
+        "--output-dir",
+        default=str(DIAGNOSTIC_DIR),
+        help="Directory for generated diagnostic artifacts (default: diagnostic/)",
+    )
 
-    args = parser.parse_args()
+    return parser.parse_args(argv)
+
+
+def module_names_from_args(module_args: Optional[list[str]]) -> list[str]:
+    if not module_args:
+        return ["all"]
+    names: list[str] = []
+    for value in module_args:
+        names.extend(part.strip() for part in value.split(",") if part.strip())
+    return names or ["all"]
+
+
+def select_modules(module_args: Optional[list[str]]) -> tuple[list[Module], list[str]]:
+    names = module_names_from_args(module_args)
+    if "all" in names:
+        return MODULES, []
+    by_name = {m.name: m for m in MODULES}
+    selected = [by_name[name] for name in names if name in by_name]
+    missing = sorted(set(names) - set(by_name))
+    return selected, missing
+
+
+def main(argv: Optional[list[str]] = None):
+    global DIAGNOSTIC_DIR
+    args = parse_build_args(argv)
+    DIAGNOSTIC_DIR = Path(args.output_dir).expanduser()
+    if not DIAGNOSTIC_DIR.is_absolute():
+        DIAGNOSTIC_DIR = ROOT / DIAGNOSTIC_DIR
 
     print(f"\n  {color('Tent of Trials: building', Colors.CYAN)}")
     print(f"  Working directory: {ROOT}")
     print()
 
-    if args.list:
+    if args.list_modules:
         print(f"  {color('Available modules:', Colors.BOLD)}")
         for m in MODULES:
             print(f"    {color(m.name, Colors.CYAN)} ({m.language})")
@@ -950,16 +994,11 @@ Diagnostic bundle:
         print(f"  {color(msg, Colors.GRAY)}")
     else:
         print(f"  {color('✓ All prerequisites found', Colors.GREEN)}")
-    if args.module == "all":
-        selected = MODULES
-    else:
-        names = [n.strip() for n in args.module.split(",")]
-        selected = [m for m in MODULES if m.name in names]
-        not_found = set(names) - {m.name for m in MODULES}
-        if not_found:
-            print(f"  {color('✗ Unknown modules:', Colors.RED)} {', '.join(not_found)}")
-            print(f"    Available: {', '.join(m.name for m in MODULES)}")
-            return 1
+    selected, not_found = select_modules(args.module)
+    if not_found:
+        print(f"  {color('✗ Unknown modules:', Colors.RED)} {', '.join(not_found)}")
+        print(f"    Available: {', '.join(m.name for m in MODULES)}")
+        return 1
 
     if not selected:
         print(f"  No modules selected.")
