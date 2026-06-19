@@ -1,0 +1,36 @@
+{
+  "generated_at": "2026-06-19T00:00:39.628193+00:00",
+  "commit": "f9b34f6c",
+  "diagnostic_logd": [
+    "diagnostic/build-f9b34f6c-part001.logd",
+    "diagnostic/build-f9b34f6c-part002.logd",
+    "diagnostic/build-f9b34f6c-part003.logd",
+    "diagnostic/build-f9b34f6c-part004.logd",
+    "diagnostic/build-f9b34f6c-part005.logd",
+    "diagnostic/build-f9b34f6c-part006.logd",
+    "diagnostic/build-f9b34f6c-part007.logd",
+    "diagnostic/build-f9b34f6c-part008.logd",
+    "diagnostic/build-f9b34f6c-part009.logd",
+    "diagnostic/build-f9b34f6c-part010.logd",
+    "diagnostic/build-f9b34f6c-part011.logd"
+  ],
+  "diagnostic_logd_error": null,
+  "message_blocker": null,
+  "chunked": true,
+  "chunk_size_bytes": 41943040,
+  "password": "0275a206159702c91877",
+  "decrypt_command": "encryptly unpack diagnostic/build-f9b34f6c.logd <outdir> --password 0275a206159702c91877",
+  "total_modules": 1,
+  "passed": 0,
+  "failed": 1,
+  "modules": [
+    {
+      "name": "market",
+      "status": "FAIL",
+      "elapsed_seconds": 0.103,
+      "artifact": null,
+      "output": "# go.uber.org/multierr\n/storage/go-workspace/pkg/mod/go.uber.org/multierr@v1.10.0/error.go:224:20: undefined: atomic.Bool\nnote: module requires Go 1.19\n# github.com/tent-of-trials/market/matching\nmatching/engine.go:26:20: undefined: atomic.Int64\nnote: module requires Go 1.26"
+    }
+  ],
+  "pr_note": "Include the encrypted diagnostic logd artifact(s): diagnostic/build-f9b34f6c-part001.logd, diagnostic/build-f9b34f6c-part002.logd, diagnostic/build-f9b34f6c-part003.logd, diagnostic/build-f9b34f6c-part004.logd, diagnostic/build-f9b34f6c-part005.logd, diagnostic/build-f9b34f6c-part006.logd, diagnostic/build-f9b34f6c-part007.logd, diagnostic/build-f9b34f6c-part008.logd, diagnostic/build-f9b34f6c-part009.logd, diagnostic/build-f9b34f6c-part010.logd, diagnostic/build-f9b34f6c-part011.logd. The encrypted .logd is the required diagnostic content for PR review; this JSON file is metadata. Maintainers may ask you to remove these diagnostic artifacts before merging."
+}

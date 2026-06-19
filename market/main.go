@@ -1,10 +1,12 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/tent-of-trials/market/matching"
@@ -25,6 +27,12 @@ var (
 func main() {
 	flag.Parse()
 
+	parsedSymbols, err := validateMarketConfig(*port, *symbols, *depth, *rateLimit)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "invalid market stream configuration: %v\n", err)
+		os.Exit(2)
+	}
+
 	logger, _ := zap.NewProduction()
 	defer logger.Sync()
 
@@ -35,21 +43,20 @@ func main() {
 	)
 
 	bookConfig := orderbook.Config{
-		MaxDepth:      *depth,
-		PriceDecimals: 8,
+		MaxDepth:       *depth,
+		PriceDecimals:  8,
 		VolumeDecimals: 8,
 	}
 
 	engineConfig := matching.EngineConfig{
-		OrderTimeoutMs: 30000,
+		OrderTimeoutMs:   30000,
 		MaxPendingOrders: 10000,
-		EnableShorting:  true,
-		FeeRate:         "0.001",
-		MakerFeeRate:    "0.0005",
+		EnableShorting:   true,
+		FeeRate:          "0.001",
+		MakerFeeRate:     "0.0005",
 	}
 
 	books := make(map[types.Symbol]*orderbook.OrderBook)
-	parsedSymbols := parseSymbols(*symbols)
 
 	for _, sym := range parsedSymbols {
 		book := orderbook.NewOrderBook(sym, bookConfig)
@@ -93,22 +100,41 @@ func main() {
 	logger.Info("market engine shutdown complete")
 }
 
+func validateMarketConfig(port int, symbols string, depth int, rateLimit int) ([]types.Symbol, error) {
+	if port < 1 || port > 65535 {
+		return nil, fmt.Errorf("port must be between 1 and 65535, got %d", port)
+	}
+	if depth < 1 {
+		return nil, fmt.Errorf("depth must be positive, got %d", depth)
+	}
+	if rateLimit < 1 {
+		return nil, fmt.Errorf("rate-limit must be positive, got %d", rateLimit)
+	}
+
+	parsed := parseSymbols(symbols)
+	if len(parsed) == 0 {
+		return nil, errors.New("at least one trading symbol is required")
+	}
+	return parsed, nil
+}
+
 func parseSymbols(s string) []types.Symbol {
 	var result []types.Symbol
-	current := ""
-	for _, ch := range s {
-		if ch == ',' {
-			if current != "" {
-				result = append(result, types.Symbol(current))
-			}
-			current = ""
-		} else {
-			current += string(ch)
+	seen := make(map[types.Symbol]struct{})
+
+	for _, raw := range strings.Split(s, ",") {
+		cleaned := strings.ToUpper(strings.TrimSpace(raw))
+		if cleaned == "" {
+			continue
 		}
+		symbol := types.Symbol(cleaned)
+		if _, exists := seen[symbol]; exists {
+			continue
+		}
+		seen[symbol] = struct{}{}
+		result = append(result, symbol)
 	}
-	if current != "" {
-		result = append(result, types.Symbol(current))
-	}
+
 	fmt.Printf("market: configured symbols %v\n", result)
 	return result
 }
