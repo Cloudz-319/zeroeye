@@ -27,14 +27,18 @@ var (
 func main() {
 	flag.Parse()
 
+	logger, _ := zap.NewProduction()
+	defer logger.Sync()
+
 	parsedSymbols, err := validateMarketConfig(*port, *symbols, *depth, *rateLimit)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "invalid market stream configuration: %v\n", err)
+		logger.Error("invalid market stream configuration", zap.Error(err))
 		os.Exit(2)
 	}
 
-	logger, _ := zap.NewProduction()
-	defer logger.Sync()
+	logger.Info("market: configured symbols",
+		zap.Any("symbols", parsedSymbols),
+	)
 
 	logger.Info("initializing tent market engine",
 		zap.Int("port", *port),
@@ -135,6 +139,5 @@ func parseSymbols(s string) []types.Symbol {
 		result = append(result, symbol)
 	}
 
-	fmt.Printf("market: configured symbols %v\n", result)
 	return result
 }
