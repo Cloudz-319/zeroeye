@@ -1,4 +1,5 @@
 import React from 'react';
+import DashboardErrorBoundary from '../components/DashboardErrorBoundary';
 import { useDashboardStats } from '../hooks';
 import type { DashboardStats } from '../types';
 
@@ -26,7 +27,27 @@ function isDashboardStatsPayload(value: unknown): value is DashboardStats {
   ));
 }
 
-const Dashboard: React.FC = () => {
+export function normalizeDashboardStats(raw: unknown): Record<string, string | number | null | undefined> {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new Error('Expected dashboard stats to be an object');
+  }
+
+  const stats = raw as Record<string, string | number | null | undefined>;
+  for (const card of statCards) {
+    const value = stats[card.key];
+    if (value === undefined || value === null || value === '') {
+      stats[card.key] = ' - ';
+      continue;
+    }
+    if (typeof value !== 'string' && typeof value !== 'number') {
+      throw new Error(`Invalid value for ${card.key}`);
+    }
+  }
+
+  return stats;
+}
+
+const DashboardContent: React.FC = () => {
   const { data: stats, isLoading, error } = useDashboardStats();
 
   if (isLoading) {
@@ -40,7 +61,7 @@ const Dashboard: React.FC = () => {
 
   if (error) {
     return (
-      <div className="dashboard-error">
+      <div className="dashboard-error" role="alert">
         <p>Failed to load dashboard: {(error as Error).message}</p>
       </div>
     );
@@ -53,6 +74,8 @@ const Dashboard: React.FC = () => {
       </div>
     );
   }
+
+  const safeStats = normalizeDashboardStats(stats);
 
   return (
     <div className="dashboard">
@@ -76,8 +99,8 @@ const Dashboard: React.FC = () => {
                 className="stat-card-value"
                 style={{ color: card.color }}
               >
-                {String(stats[card.key])}
-                {card.suffix}
+                {String(safeStats[card.key])}
+                {card.suffix || ''}
               </span>
             </div>
           </div>
@@ -101,5 +124,11 @@ const Dashboard: React.FC = () => {
     </div>
   );
 };
+
+const Dashboard: React.FC = () => (
+  <DashboardErrorBoundary>
+    <DashboardContent />
+  </DashboardErrorBoundary>
+);
 
 export default Dashboard;

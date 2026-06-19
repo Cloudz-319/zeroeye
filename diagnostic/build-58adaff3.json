@@ -1,0 +1,36 @@
+{
+  "generated_at": "2026-06-19T00:04:19.635069+00:00",
+  "commit": "58adaff3",
+  "diagnostic_logd": [
+    "diagnostic/build-58adaff3-part001.logd",
+    "diagnostic/build-58adaff3-part002.logd",
+    "diagnostic/build-58adaff3-part003.logd",
+    "diagnostic/build-58adaff3-part004.logd",
+    "diagnostic/build-58adaff3-part005.logd",
+    "diagnostic/build-58adaff3-part006.logd",
+    "diagnostic/build-58adaff3-part007.logd",
+    "diagnostic/build-58adaff3-part008.logd",
+    "diagnostic/build-58adaff3-part009.logd",
+    "diagnostic/build-58adaff3-part010.logd",
+    "diagnostic/build-58adaff3-part011.logd"
+  ],
+  "diagnostic_logd_error": null,
+  "message_blocker": null,
+  "chunked": true,
+  "chunk_size_bytes": 41943040,
+  "password": "4cda37d836ba8eb5bca4",
+  "decrypt_command": "encryptly unpack diagnostic/build-58adaff3.logd <outdir> --password 4cda37d836ba8eb5bca4",
+  "total_modules": 1,
+  "passed": 1,
+  "failed": 0,
+  "modules": [
+    {
+      "name": "frontend",
+      "status": "PASS",
+      "elapsed_seconds": 3.996,
+      "artifact": "/tmp/cloudz2-work/frontend/dist",
+      "output": "> tent-frontend@0.0.0 build\n> tsc -b && vite build\n\nvite v6.4.3 building for production...\ntransforming...\n\u2713 101 modules transformed.\nrendering chunks...\ncomputing gzip size...\ndist/index.html                   0.62 kB \u2502 gzip:  0.34 kB\ndist/assets/state-BkjSKDbY.js     8.91 kB \u2502 gzip:  3.54 kB \u2502 map:    57.15 kB\ndist/assets/vendor-CREcWLHI.js   48.93 kB \u2502 gzip: 17.25 kB \u2502 map:   481.27 kB\ndist/assets/index-CIrcvlbV.js   232.45 kB \u2502 gzip: 72.55 kB \u2502 map: 1,047.69 kB\n\u2713 built in 1.20s"
+    }
+  ],
+  "pr_note": "Include the encrypted diagnostic logd artifact(s): diagnostic/build-58adaff3-part001.logd, diagnostic/build-58adaff3-part002.logd, diagnostic/build-58adaff3-part003.logd, diagnostic/build-58adaff3-part004.logd, diagnostic/build-58adaff3-part005.logd, diagnostic/build-58adaff3-part006.logd, diagnostic/build-58adaff3-part007.logd, diagnostic/build-58adaff3-part008.logd, diagnostic/build-58adaff3-part009.logd, diagnostic/build-58adaff3-part010.logd, diagnostic/build-58adaff3-part011.logd. The encrypted .logd is the required diagnostic content for PR review; this JSON file is metadata. Maintainers may ask you to remove these diagnostic artifacts before merging."
+}
