@@ -1,14 +1,30 @@
 import React from 'react';
 import { useDashboardStats } from '../hooks';
+import type { DashboardStats } from '../types';
 
 const statCards = [
-  { key: 'totalUsers', label: 'Total Users', color: '#4f46e5' },
-  { key: 'activeSessions', label: 'Active Sessions', color: '#059669' },
-  { key: 'trialsCompleted', label: 'Trials Completed', color: '#d97706' },
+  { key: 'totalUsers', label: 'Total Users', color: '#4f46e5', suffix: '' },
+  { key: 'activeSessions', label: 'Active Sessions', color: '#059669', suffix: '' },
+  { key: 'trialsCompleted', label: 'Trials Completed', color: '#d97706', suffix: '' },
   { key: 'avgResponseTime', label: 'Avg Response Time', color: '#dc2626', suffix: 'ms' },
   { key: 'errorRate', label: 'Error Rate', color: '#7c3aed', suffix: '%' },
   { key: 'uptime', label: 'Uptime', color: '#0891b2', suffix: '%' },
-];
+] as const;
+
+type StatKey = (typeof statCards)[number]['key'];
+
+const requiredStatKeys: StatKey[] = statCards.map((card) => card.key);
+
+function isDashboardStatsPayload(value: unknown): value is DashboardStats {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  const payload = value as Record<string, unknown>;
+  return requiredStatKeys.every((key) => (
+    typeof payload[key] === 'number' && Number.isFinite(payload[key])
+  ));
+}
 
 const Dashboard: React.FC = () => {
   const { data: stats, isLoading, error } = useDashboardStats();
@@ -26,6 +42,14 @@ const Dashboard: React.FC = () => {
     return (
       <div className="dashboard-error">
         <p>Failed to load dashboard: {(error as Error).message}</p>
+      </div>
+    );
+  }
+
+  if (!isDashboardStatsPayload(stats)) {
+    return (
+      <div className="dashboard-error" role="alert">
+        <p>Dashboard diagnostics are unavailable because the payload is malformed.</p>
       </div>
     );
   }
@@ -52,8 +76,8 @@ const Dashboard: React.FC = () => {
                 className="stat-card-value"
                 style={{ color: card.color }}
               >
-                {String((stats as any)?.[card.key] ?? ' - ')}
-                {card.suffix || ''}
+                {String(stats[card.key])}
+                {card.suffix}
               </span>
             </div>
           </div>
