@@ -18,6 +18,9 @@ frailbox/build/
 *.o
 *.d
 
+# Diagnostic build artifacts
+*.logd
+
 # Python
 __pycache__/
 *.pyc

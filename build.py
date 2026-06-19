@@ -17,6 +17,8 @@ from typing import Callable, Optional
 ROOT = Path(__file__).resolve().parent
 DIAGNOSTIC_DIR = ROOT / "diagnostic"
 DIAGNOSTIC_CHUNK_SIZE = 40 * 1024 * 1024
+ENCRYPTLY_MAX_ATTEMPTS = 3
+ENCRYPTLY_INITIAL_BACKOFF_SECONDS = 1.0
 ENCRYPTLY_BLOCKER_MESSAGE = "You need to fix your environment so encryptly runs before building."
 ENCRYPTLY_PACK_MAX_ATTEMPTS = 3
 ENCRYPTLY_PACK_INITIAL_BACKOFF_SECONDS = 0.5
@@ -545,6 +547,61 @@ def run_cmd(cmd: list[str], **kwargs) -> tuple[bool, str]:
         return False, str(e)
 
 
+def run_encryptly_pack_with_retries(
+    encryptly_bin: Path,
+    logd_path: Path,
+    workspace: Path,
+    *,
+    max_file_size: str = "61440",
+    max_attempts: int = ENCRYPTLY_MAX_ATTEMPTS,
+    initial_backoff_seconds: float = ENCRYPTLY_INITIAL_BACKOFF_SECONDS,
+    timeout: int = 300,
+    runner=subprocess.run,
+    sleeper=time.sleep,
+) -> tuple[bool, str, int, Optional[str]]:
+    """Run encryptly pack with bounded exponential backoff.
+
+    Returns (success, password, retry_count, terminal_error). retry_count is the
+    number of failed attempts before the final successful attempt, or the number
+    of retries performed before permanent failure.
+    """
+    attempts = max(1, max_attempts)
+    last_error: Optional[str] = None
+    for attempt in range(1, attempts + 1):
+        try:
+            result = runner(
+                [
+                    str(encryptly_bin),
+                    "pack",
+                    str(logd_path),
+                    "--include",
+                    str(workspace),
+                    "--max-file-size",
+                    max_file_size,
+                ],
+                cwd=str(ROOT),
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
+            if result.returncode == 0 and logd_path.exists():
+                return True, result.stdout.strip(), attempt - 1, None
+            if result.returncode == 0:
+                last_error = "encryptly pack completed without creating a .logd"
+            else:
+                last_error = result.stderr.strip() or result.stdout.strip() or "encryptly pack failed"
+        except subprocess.TimeoutExpired:
+            last_error = f"encryptly pack TIMEOUT ({timeout}s)"
+        except Exception as e:
+            last_error = str(e)
+
+        if attempt < attempts:
+            delay = initial_backoff_seconds * (2 ** (attempt - 1))
+            sleeper(delay)
+
+    return False, "", attempts - 1, last_error
+
+
 def collect_system_info() -> str:
     lines = [
         "Tent of Trials - System Diagnostic Snapshot",
@@ -597,6 +654,8 @@ def build_diagnostic_report(
     logd_retry_errors: Optional[list[str]] = None,
     chunked: bool = False,
     message_blocker: Optional[str] = None,
+    encryptly_retry_count: int = 0,
+    encryptly_terminal_error: Optional[str] = None,
 ) -> dict:
     diagnostic_logd: Optional[str | list[str]]
     if not logd_relpaths:
@@ -618,6 +677,8 @@ def build_diagnostic_report(
         "diagnostic_logd_attempts": logd_attempts,
         "diagnostic_logd_retry_count": logd_retry_count,
         "diagnostic_logd_retry_errors": logd_retry_errors,
+        "encryptly_retry_count": encryptly_retry_count,
+        "encryptly_terminal_error": encryptly_terminal_error,
         "message_blocker": message_blocker,
         "chunked": chunked,
         "chunk_size_bytes": DIAGNOSTIC_CHUNK_SIZE if chunked else None,
@@ -798,6 +859,8 @@ def generate_logd(
                     logd_retry_count=pack_result.retry_count,
                     logd_retry_errors=pack_result.retry_errors,
                     message_blocker=ENCRYPTLY_BLOCKER_MESSAGE,
+                    encryptly_retry_count=retry_count,
+                    encryptly_terminal_error=error,
                 ),
             )
             print(f"    {color('BLOCKER', Colors.RED)} {ENCRYPTLY_BLOCKER_MESSAGE}")
@@ -824,6 +887,8 @@ def generate_logd(
                 logd_retry_count=pack_result.retry_count,
                 logd_retry_errors=pack_result.retry_errors,
                 chunked=len(logd_files) > 1,
+                encryptly_retry_count=retry_count,
+                encryptly_terminal_error=terminal_error,
             ),
         )
 
