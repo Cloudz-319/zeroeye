@@ -359,6 +359,23 @@ class LogAggregator:
             }, f, indent=2, default=str)
         logger.info(f"Report exported to {output_path}")
 
+    def export_jsonl(self, output_path: str):
+        with open(output_path, 'w') as f:
+            for entry in self.entries:
+                fields = dict(entry.get('fields') or {})
+                record = {
+                    'timestamp': entry.get('timestamp'),
+                    'level': entry.get('level') or 'unknown',
+                    'module': entry.get('service') or 'unknown',
+                    'message': entry.get('message') or '',
+                    'metadata': {
+                        'format': entry.get('format'),
+                        **fields,
+                    },
+                }
+                f.write(json.dumps(record, ensure_ascii=False, default=str) + '\n')
+        logger.info(f"JSONL report exported to {output_path}")
+
     def generate_html_report(self, output_path: str):
         summary = self.get_summary()
         html = f"""<!DOCTYPE html>
@@ -409,7 +426,7 @@ def parse_args():
     parser.add_argument("--input", "-i", help="Input log file or glob pattern")
     parser.add_argument("--dir", help="Directory containing log files")
     parser.add_argument("--output", "-o", default="log_report.json", help="Output file path")
-    parser.add_argument("--format", choices=["json", "csv", "html"], default="json", help="Output format")
+    parser.add_argument("--format", choices=["json", "csv", "html", "jsonl"], default="json", help="Output format")
     parser.add_argument("--search", help="Search for a string in logs")
     parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
     return parser.parse_args()
@@ -447,7 +464,8 @@ def main():
     summary = aggregator.get_summary()
     print(f"\nSummary:")
     print(f"  Total entries: {summary['total_entries']:,}")
-    print(f"  Time range: {summary.get('time_range', {}).get('start', 'N/A')} to {summary.get('time_range', {}).get('end', 'N/A')}")
+    time_range = summary.get('time_range') or {}
+    print(f"  Time range: {time_range.get('start', 'N/A')} to {time_range.get('end', 'N/A')}")
     print(f"  Error rate: {summary.get('error_rate', 0)}%")
     print(f"  By level: {', '.join(f'{k}={v}' for k, v in summary.get('by_level', {}).items())}")
     print(f"  By service: {', '.join(f'{k}={v}' for k, v in summary.get('by_service', {}).items())}")
@@ -456,6 +474,8 @@ def main():
         aggregator.export_csv(args.output)
     elif args.format == "html":
         aggregator.generate_html_report(args.output)
+    elif args.format == "jsonl":
+        aggregator.export_jsonl(args.output)
     else:
         aggregator.export_json(args.output)
 
