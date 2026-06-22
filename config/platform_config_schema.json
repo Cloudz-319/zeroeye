@@ -1,0 +1,234 @@
+# Fix for Issue #11: [$25 BOUNTY] [Python] Add JSON Schema validation for platform configuration
+
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/Cloudz-319/zeroeye/config/platform_config_schema.json",
+  "title": "ZeroEye Platform Configuration",
+  "description": "JSON Schema for ZeroEye platform configuration validation",
+  "version": "1.0.0",
+  "type": "object",
+  "required": ["platform", "database", "logging"],
+  "properties": {
+    "platform": {
+      "type": "object",
+      "description": "Core platform settings",
+      "required": ["name", "version", "environment"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Platform name identifier"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "description": "Platform version in semver format"
+        },
+        "environment": {
+          "type": "string",
+          "enum": ["development", "staging", "production"],
+          "description": "Deployment environment"
+        },
+        "debug": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable debug mode"
+        },
+        "workers": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 32,
+          "default": 4,
+          "description": "Number of worker processes"
+        }
+      },
+      "additionalProperties": false
+    },
+    "database": {
+      "type": "object",
+      "description": "Database connection settings",
+      "required": ["host", "port", "name"],
+      "properties": {
+        "host": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Database host address"
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "description": "Database port number"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Database name"
+        },
+        "username": {
+          "type": "string",
+          "description": "Database username"
+        },
+        "password": {
+          "type": "string",
+          "description": "Database password"
+        },
+        "pool_size": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 10,
+          "description": "Connection pool size"
+        },
+        "ssl_enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable SSL for database connection"
+        },
+        "options": {
+          "type": "object",
+          "description": "Additional database options",
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "logging": {
+      "type": "object",
+      "description": "Logging configuration",
+      "required": ["level", "output"],
+      "properties": {
+        "level": {
+          "type": "string",
+          "enum": ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+          "description": "Logging level"
+        },
+        "output": {
+          "type": "string",
+          "enum": ["console", "file", "both"],
+          "description": "Log output destination"
+        },
+        "file_path": {
+          "type": "string",
+          "description": "Path to log file (required if output is 'file' or 'both')"
+        },
+        "max_size_mb": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000,
+          "default": 100,
+          "description": "Maximum log file size in MB"
+        },
+        "backup_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "default": 5,
+          "description": "Number of backup log files to keep"
+        },
+        "format": {
+          "type": "string",
+          "default": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+          "description": "Log message format"
+        }
+      },
+      "additionalProperties": false,
+      "if": {
+        "properties": {
+          "output": { "enum": ["file", "both"] }
+        }
+      },
+      "then": {
+        "required": ["file_path"]
+      }
+    },
+    "api": {
+      "type": "object",
+      "description": "API server configuration",
+      "properties": {
+        "host": {
+          "type": "string",
+          "default": "0.0.0.0",
+          "description": "API server host"
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "default": 8080,
+          "description": "API server port"
+        },
+        "cors_origins": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Allowed CORS origins"
+        },
+        "rate_limit": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            },
+            "requests_per_minute": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 60
+            }
+          },
+          "additionalProperties": false
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 300,
+          "default": 30,
+          "description": "Request timeout in seconds"
+        }
+      },
+      "additionalProperties": false
+    },
+    "security": {
+      "type": "object",
+      "description": "Security settings",
+      "properties": {
+        "jwt_secret": {
+          "type": "string",
+          "minLength": 32,
+          "description": "JWT signing secret (minimum 32 characters)"
+        },
+        "jwt_expiry_hours": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 720,
+          "default": 24,
+          "description": "JWT token expiry in hours"
+        },
+        "encryption_key": {
+          "type": "string",
+          "minLength": 16,
+          "description": "Encryption key for sensitive data"
+        },
+        "allowed_ips": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of allowed IP addresses"
+        }
+      },
+      "additionalProperties": false
+    },
+    "features": {
+      "type": "object",
+      "description": "Feature flags",
+      "additionalProperties": {
+        "type": "boolean"
+      }
+    }
+  },
+  "additionalProperties": false
+}
